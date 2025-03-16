@@ -1,0 +1,102 @@
+model:
+  max_seq_length: 256
+  num_tags: 22
+  dropout: 0.15
+  bert_model_path: 'BERT_models/hfl/chinese-roberta-wwm-ext'
+  
+  # BERT配置
+  bert:
+    hidden_size: 768
+    num_hidden_layers: 12
+    num_attention_heads: 12
+    intermediate_size: 3072
+    hidden_dropout_prob: 0.1
+    attention_probs_dropout_prob: 0.15
+
+  # LSTM配置
+  lstm:
+    input_size: 768
+    hidden_size: 256
+    num_layers: 2
+    bidirectional: true
+    batch_first: true
+    dropout: 0.3
+    
+  # 注意力层配置  
+  attention:
+    embed_dim: 512
+    num_heads: 8
+    dropout: 0.2
+    batch_first: true
+
+training:
+  batch_size: 256
+  learning_rate: 2e-5
+  epochs: 200
+  gradient_clip_val: 1.0
+  patience: 10
+  save_dir: 'models'
+  seed: 3407
+  freeze_bert_layers: 4
+  weight_decay: 0.01
+  fp16: true
+  
+  # 流式数据处理配置
+  use_streaming: true
+  steps_per_epoch: 1000
+  max_steps_per_epoch: 1000
+  max_eval_steps: 100
+  dataloader_workers: 2
+  prefetch_factor: 2
+  buffer_size: 1000
+  
+  # 类别不平衡处理
+  use_weighted_loss: true
+  class_weight_method: 'log_scale'
+  max_weight: 10.0
+  
+  # Focal Loss参数
+  focal_loss_gamma: 4.0
+  
+  # 混合损失函数配置
+  hybrid_loss_alpha: 0.6
+  
+  # 学习率调度器
+  lr_scheduler:
+    type: 'cosine_with_warmup'
+    warmup_ratio: 0.05
+    min_lr_ratio: 0.01
+
+data:
+  train_file: "data/processed/train.json"
+  dev_file: "data/processed/dev.json"
+  test_file: "data/processed/test.json"
+  cache_dir: "cache"
+  window_size: 50
+
+process:
+  # 文件路径
+  raw_data_path: 'data/raw/raw_data.txt'
+  output_dir: 'data/processed'
+  temp_dir: 'temp_chunks'
+  
+  # 数据集划分比例
+  train_ratio: 0.8
+  dev_ratio: 0.1
+  test_ratio: 0.1
+  
+  # 处理参数
+  chunk_size: 100000
+  max_processing_time: 7200
+  max_chunk_processing_time: 180
+  memory_limit: 0.8
+  buffer_size: 16777216  # 16MB (16*1024*1024)
+  batch_size: 50
+  
+  # 文件命名
+  train_file_prefix: 'train_temp_'
+  dev_file_prefix: 'dev_temp_'
+  test_file_prefix: 'test_temp_'
+  train_output: 'train.json'
+  dev_output: 'dev.json'
+  test_output: 'test.json'
