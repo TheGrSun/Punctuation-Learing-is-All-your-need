@@ -1,0 +1,3 @@
+[
+{"text": "这个后辈结果她还是拒绝了", "labels": [["O"], ["B-DQUOTE_L"], ["O"], ["E-DQUOTE_R", "S-Exclamation"], ["O"], ["O"], ["O"], ["O"], ["O"], ["O"], ["O"], ["S-Period"]], "language": "zh"}
+]
