@@ -1,6 +1,7 @@
 # Punctuation Learning is All Your Need!
 
-燃尽了，只剩下了雪白的灰，反正也没人用，随便水水吧。
+燃尽了，只剩下了雪白的灰。
+长路漫漫，我心悠悠。
 
 ## 项目简介
 
@@ -19,7 +20,8 @@
 - **TensorBoard可视化**：实时监控训练过程中的各项指标
 
 ## 环境要求
-- pip install requirements.txt
+
+参见requirements.txt文件
 
 ## 项目结构
 
