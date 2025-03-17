@@ -79,13 +79,13 @@
 ### 安装依赖
 
 ```bash
-pip install -r requirements.txt
+pip install requirements.txt
 ```
 
 ### 数据预处理
 
 ```bash
-python -m src.process
+python src/process
 ```
 
 处理参数可在`configs/config.yml`的`process`部分配置。
@@ -93,7 +93,7 @@ python -m src.process
 ### 训练模型
 
 ```bash
-python -m src.train
+python src/train
 ```
 
 训练参数可在`configs/config.yml`的`training`部分配置。
@@ -101,7 +101,7 @@ python -m src.train
 ### 模型评估
 
 ```bash
-python -m src.evaluate
+python src/evaluate.py --model_path models/best_model.pth --output_dir evaluation_results
 ```
 
 ### 标点预测
