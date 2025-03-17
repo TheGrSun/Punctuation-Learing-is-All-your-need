@@ -32,7 +32,7 @@ class Model(nn.Module):
             self.bert.gradient_checkpointing_enable()
 
             # 优化梯度钩子函数
-            def make_inputs_require_grad( output):
+            def make_inputs_require_grad(module, input, output):
                 if isinstance(output, torch.Tensor):
                     output.requires_grad_(True)
                 else:
@@ -84,7 +84,7 @@ class Model(nn.Module):
         # 全连接层 - 直接使用注意力层的嵌入维度作为输入
         fc_input_size = attention_config['embed_dim']
         fc_output_size = config['model']['num_tags']
-        self.fc = nn.Linear(fc_input_size, fc_output_size)
+        self.classifier = nn.Linear(fc_input_size, fc_output_size)
 
         # 添加sigmoid激活
         self.sigmoid = nn.Sigmoid()
@@ -102,8 +102,8 @@ class Model(nn.Module):
                 nn.init.constant_(param, 0.0)
         
         # 初始化全连接层
-        nn.init.xavier_uniform_(self.fc.weight)
-        nn.init.constant_(self.fc.bias, 0.0)
+        nn.init.xavier_uniform_(self.classifier.weight)
+        nn.init.constant_(self.classifier.bias, 0.0)
         
         # 初始化层归一化
         for module in [self.lstm_layer_norm, self.attention_layer_norm]:
@@ -149,7 +149,7 @@ class Model(nn.Module):
                 combined_output = self.attention_dropout(combined_output)
 
                 # 分类层
-                logits = self.fc(combined_output)
+                logits = self.classifier(combined_output)
         
         # 应用sigmoid激活
         probs = self.sigmoid(logits)
@@ -252,7 +252,6 @@ def load_model(path, config=None, device='cpu', load_optimizer=False, load_sched
     
     return result
 
-
 if __name__ == "__main__":
     # 从配置文件加载配置
     with open('configs/config.yml', 'r', encoding='utf-8') as f:
@@ -261,9 +260,3 @@ if __name__ == "__main__":
     # 创建模型
     model = Model(config)
     print(model)
-
-    # 示例：保存模型
-    # save_model(model, 'models/checkpoint.pt')
-    
-    # 示例：加载模型
-    # loaded_model = load_model('models/checkpoint.pt', config)
