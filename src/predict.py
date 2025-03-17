@@ -13,30 +13,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 # 反向映射，从标签到实际标点
-TAG_TO_PUNCTUATION = {
-    'S-Comma': '，',
-    'S-Period': '。',
-    'S-Question': '？',
-    'S-Exclamation': '！',
-    'S-Semicolon': '；',
-    'S-Colon': '：',
-    'S-Pause': '、',
-    'B-DQUOTE_L': '\u201c',  # 左双引号
-    'E-DQUOTE_R': '\u201d',  # 右双引号
-    'B-SQUOTE_L': '\u2018',  # 左单引号
-    'E-SQUOTE_R': '\u2019',  # 右单引号
-    'B-BRACKET_L': '（',
-    'E-BRACKET_R': '）',
-    'B-BOOK_L': '《',
-    'E-BOOK_R': '》',
-    'B-BRACE_L': '{',
-    'E-BRACE_R': '}',
-    'B-MBRACKET_L': '【',
-    'E-MBRACKET_R': '】',
-    'S-ELLIP': '……',
-    'S-DASH': '——'
-}
-
+TAG_TO_PUNCTUATION = {tag: punct for punct, tag in PUNCTUATION_MAP.items()}
 
 class PunctuationRestorer:
     def __init__(self, model_path, config_path):
@@ -82,17 +59,17 @@ class PunctuationRestorer:
             # 为缺失的标签添加默认映射
             for tag in missing_tags:
                 if tag.startswith('B-DQUOTE'):
-                    TAG_TO_PUNCTUATION[tag] = '“'
+                    TAG_TO_PUNCTUATION[tag] = '\u201c'  # 左双引号
                 elif tag.startswith('E-DQUOTE'):
-                    TAG_TO_PUNCTUATION[tag] = '”'
+                    TAG_TO_PUNCTUATION[tag] = '\u201d'  # 右双引号
                 elif tag.startswith('B-SQUOTE'):
-                    TAG_TO_PUNCTUATION[tag] = '‘'
+                    TAG_TO_PUNCTUATION[tag] = '\u2018'  # 左单引号
                 elif tag.startswith('E-SQUOTE'):
-                    TAG_TO_PUNCTUATION[tag] = '’'
+                    TAG_TO_PUNCTUATION[tag] = '\u2019'  # 右单引号
                 elif tag.startswith('B-BRACKET'):
-                    TAG_TO_PUNCTUATION[tag] = '（'
+                    TAG_TO_PUNCTUATION[tag] = '（'  # 左括号
                 elif tag.startswith('E-BRACKET'):
-                    TAG_TO_PUNCTUATION[tag] = '）'
+                    TAG_TO_PUNCTUATION[tag] = '）'  # 右括号
                 elif tag.startswith('B-BOOK'):
                     TAG_TO_PUNCTUATION[tag] = '《'
                 elif tag.startswith('E-BOOK'):
@@ -169,7 +146,31 @@ class PunctuationRestorer:
             logger.warning("输入文本为空，无法处理")
             return ""
 
-        # 移除标点符号
+        # 添加英文标点到中文标点的转换
+        english_to_chinese = {
+            ':': '：',
+            ';': '；',
+            ',': '，',
+            '.': '。',
+            '?': '？',
+            '!': '！',
+            '(': '（',
+            ')': '）',
+            '[': '【',
+            ']': '】',
+            '{': '｛',
+            '}': '｝',
+            '...': '……'
+        }
+        
+        # 先规范化英文标点（保留特殊格式）
+        for eng, chn in english_to_chinese.items():
+            # 跳过时间格式中的冒号
+            if eng == ':' and re.search(r'\d+:\d+', text):
+                continue
+            text = text.replace(eng, chn)
+        
+        # 然后移除所有标点进行预处理
         for punct in PUNCTUATION_MAP.keys():
             text = text.replace(punct, "")
 
@@ -321,10 +322,39 @@ class PunctuationRestorer:
         for k in paired_punctuation.values():
             close_punct_positions[k] = []
             
-        # 第一遍：查找所有标点位置
+        # 查找所有标点位置并修正标签
         for i, char in enumerate(text):
             if i < len(predictions) and predictions[i] != 0:  # 不是O标签
                 tag = IDX_TO_TAG[predictions[i]]
+                
+                # 修正可能错误的标签（如右引号被错误预测为左引号）
+                if i > 0 and tag.startswith('E-') and i+1 < len(text):
+                    # 检查前后文本特征，判断是否应该是开始标点
+                    prev_char = text[i-1]
+                    next_char = text[i+1] if i+1 < len(text) else ""
+                    
+                    # 如果前面是句号、逗号等，后面是字母或汉字，可能是开始标点被误识别
+                    if (prev_char in "。，！？；：" and next_char.isalnum()):
+                        # 将结束标点改为对应的开始标点
+                        if tag == 'E-DQUOTE_R':
+                            tag = 'B-DQUOTE_L'
+                            predictions[i] = TAG_TO_IDX[tag]
+                        elif tag == 'E-SQUOTE_R':
+                            tag = 'B-SQUOTE_L'
+                            predictions[i] = TAG_TO_IDX[tag]
+                
+                # 同样检查开始标点是否应该是结束标点
+                if i > 0 and tag.startswith('B-'):
+                    prev_char = text[i-1]
+                    # 如果前面不是句号、逗号等，可能是结束标点被误识别
+                    if prev_char.isalnum() and (i+1 == len(text) or text[i+1] in "。，！？；："):
+                        # 将开始标点改为对应的结束标点
+                        if tag == 'B-DQUOTE_L':
+                            tag = 'E-DQUOTE_R'
+                            predictions[i] = TAG_TO_IDX[tag]
+                        elif tag == 'B-SQUOTE_L':
+                            tag = 'E-SQUOTE_R'
+                            predictions[i] = TAG_TO_IDX[tag]
                 
                 # 记录标点位置
                 if tag in paired_punctuation:
@@ -332,28 +362,61 @@ class PunctuationRestorer:
                 elif tag in reverse_paired:
                     close_punct_positions[tag].append(i)
         
-        # 检查成对标点的平衡情况，删除多余的开始标点
+        # 增强的标点平衡处理
         for start_tag, end_tag in paired_punctuation.items():
-            start_count = len(open_punct_positions[start_tag])
-            end_count = len(close_punct_positions[end_tag])
+            start_positions = open_punct_positions[start_tag]
+            end_positions = close_punct_positions[end_tag]
             
-            # 如果开始标点多于结束标点，标记多余的开始标点为删除
-            if start_count > end_count:
-                # 从后向前标记多余的开始标点为删除
-                for i in range(end_count, start_count):
-                    idx = open_punct_positions[start_tag][-(i+1)]
-                    predictions[idx] = 0
-                    logger.debug(f"删除未闭合的开始标点 {start_tag} 在位置 {idx}")
+            # 如果没有开始或结束标点，跳过处理
+            if not start_positions and not end_positions:
+                continue
+                
+            # 强制平衡：如果只有开始标点或只有结束标点，全部删除
+            if not start_positions or not end_positions:
+                # 删除所有不成对的标点
+                for pos in start_positions + end_positions:
+                    predictions[pos] = 0
+                logger.debug(f"删除所有不成对的标点 {start_tag}/{end_tag}")
+                continue
+                
+            # 计算有效配对
+            valid_pairs = []
+            remaining_starts = start_positions.copy()
+            remaining_ends = end_positions.copy()
             
-            # 如果结束标点多于开始标点，标记多余的结束标点为删除
-            if end_count > start_count:
-                # 从后向前标记多余的结束标点为删除
-                for i in range(start_count, end_count):
-                    idx = close_punct_positions[end_tag][-(i+1)]
-                    predictions[idx] = 0
-                    logger.debug(f"删除未闭合的结束标点 {end_tag} 在位置 {idx}")
+            # 优先匹配距离合理的配对
+            for start_pos in sorted(start_positions):
+                # 找到当前开始标点之后的第一个结束标点
+                valid_ends = [end for end in remaining_ends if end > start_pos]
+                
+                if valid_ends:
+                    # 选择最近的有效结束标点
+                    end_pos = min(valid_ends)
+                    
+                    # 检查距离是否合理（根据不同标点类型可能有不同阈值）
+                    max_distance = 500  # 最大允许距离
+                    if start_tag.startswith('B-BOOK'):  # 书名号通常跨度较小
+                        max_distance = 200
+                    elif start_tag.startswith('B-DQUOTE') or start_tag.startswith('B-SQUOTE'):  # 引号可能跨度较大
+                        max_distance = 400
+                        
+                    if end_pos - start_pos <= max_distance:
+                        valid_pairs.append((start_pos, end_pos))
+                        remaining_starts.remove(start_pos)
+                        remaining_ends.remove(end_pos)
+            
+            # 处理剩余未配对的标点
+            # 1. 删除多余的开始标点（从后向前）
+            for start_pos in sorted(remaining_starts, reverse=True):
+                predictions[start_pos] = 0
+                logger.debug(f"删除未闭合的开始标点 {start_tag} 在位置 {start_pos}")
+            
+            # 2. 删除多余的结束标点（从后向前）
+            for end_pos in sorted(remaining_ends, reverse=True):
+                predictions[end_pos] = 0
+                logger.debug(f"删除未闭合的结束标点 {end_tag} 在位置 {end_pos}")
         
-        # 第二遍：根据处理后的预测插入标点
+        # 根据处理后的预测插入标点
         for i, char in enumerate(text):
             # 先添加字符
             result.append(char)
@@ -368,6 +431,33 @@ class PunctuationRestorer:
                     logger.warning(f"标签 {tag} 不在 TAG_TO_PUNCTUATION 映射中，跳过该标签")
         
         return ''.join(result)
+
+    def _post_process_text(self, text):
+        """对恢复标点后的文本进行后处理，确保标点符号的一致性"""
+        # 检查并替换可能的英文标点
+        english_to_chinese = {
+            ':': '：',
+            ';': '；',
+            ',': '，',
+            '.': '。',
+            '?': '？',
+            '!': '！',
+            '(': '（',
+            ')': '）',
+            '[': '【',
+            ']': '】',
+            '{': '｛',
+            '}': '｝',
+            '...': '……'
+        }
+        
+        for eng, chn in english_to_chinese.items():
+            # 保留特殊格式
+            if eng == ':' and re.search(r'\d+:\d+', text):
+                continue
+            text = text.replace(eng, chn)
+        
+        return text
 
     def predict_file(self, input_file, output_file):
         """预测文件中的标点"""
@@ -438,6 +528,9 @@ class PunctuationRestorer:
 
             # 插入标点
             result_text = self._insert_punctuation(preprocessed_text, merged_predictions)
+
+            # 添加后处理
+            result_text = self._post_process_text(result_text)
 
             return result_text
 
