@@ -252,6 +252,7 @@ def load_model(path, config=None, device='cpu', load_optimizer=False, load_sched
     
     return result
 
+
 if __name__ == "__main__":
     # 从配置文件加载配置
     with open('configs/config.yml', 'r', encoding='utf-8') as f:
