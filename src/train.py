@@ -1,5 +1,4 @@
 import os
-import json
 import pickle
 import torch
 import numpy as np
@@ -25,25 +24,10 @@ logger = logging.getLogger(__name__)
 
 
 class StreamingPunctuationDataset(IterableDataset):
-    """用于流式加载和预处理标点符号数据集的类"""
-
+    """用于加载和预处理标点符号数据集的类"""
     def __init__(self, data_file, tokenizer, max_seq_length, cache_dir="cache/preprocessed",
                  num_workers=None, use_multiprocessing=True, buffer_size=1000, 
                  calculate_stats=True, shuffle=True):
-        """
-        初始化流式数据集
-        
-        Args:
-            data_file: JSON数据文件路径
-            tokenizer: BERT分词器
-            max_seq_length: 最大序列长度
-            cache_dir: 预处理数据缓存目录
-            num_workers: 多进程处理时的工作进程数
-            use_multiprocessing: 是否使用多进程加速处理
-            buffer_size: 数据缓冲区大小
-            calculate_stats: 是否计算标签分布统计
-            shuffle: 是否打乱数据
-        """
         self.data_file = data_file
         self.tokenizer = tokenizer
         self.max_seq_length = max_seq_length
@@ -68,17 +52,11 @@ class StreamingPunctuationDataset(IterableDataset):
     def __iter__(self):
         """迭代器方法，流式读取和处理数据"""
         worker_info = torch.utils.data.get_worker_info()
-        
-        # 如果在DataLoader中使用多个worker，每个worker只处理部分数据
         if worker_info is not None:
             worker_id = worker_info.id
             num_workers = worker_info.num_workers
-            
-            # 计算当前worker应该处理的数据范围
-            # 注意：这里我们不能简单地分割文件，因为JSON是整体结构
-            # 我们将使用ijson按顺序处理，并根据索引决定是否处理当前项
-            
-            # 打开文件并使用ijson流式解析
+
+            # 打开文件并使用ijson解析
             with open(self.data_file, 'r', encoding='utf-8') as f:
                 items = ijson.items(f, 'item')
                 
@@ -289,24 +267,17 @@ class StreamingPunctuationDataset(IterableDataset):
 
         # 检查标签分布异常
         if o_percentage == 100:
-            logger.warning("警告: 所有标签都是O标签(索引0)，这可能表明数据集中没有有效的标点符号标签")
-            logger.warning("建议检查数据预处理步骤，确保标签正确转换")
+            logger.warning("警告: 所有标签都是O标签(索引0)，这表明数据集中没有有效的标点符号标签")
+            logger.warning("检查数据预处理步骤，确保标签正确转换")
         elif o_percentage > 95:
-            logger.warning(f"警告: O标签占比过高 ({o_percentage:.2f}%)，这可能表明数据集中标点符号标签很少")
-            logger.warning("建议检查数据预处理步骤，确保标签正确转换")
+            logger.warning(f"警告: O标签占比过高 ({o_percentage:.2f}%)，这表明数据集中标点符号标签很少")
+            logger.warning("检查数据预处理步骤，确保标签正确转换")
 
 
 # 模型定义
 class PunctuationModel(nn.Module):
     """用于标点符号预测的模型"""
-
     def __init__(self, config):
-        """
-        初始化模型
-        
-        Args:
-            config: 模型配置字典
-        """
         super(PunctuationModel, self).__init__()
         
         # BERT模型
@@ -398,7 +369,7 @@ class PunctuationModel(nn.Module):
         # 分类层
         logits = self.classifier(combined_output)
         
-        # 注意：始终将logits作为第一个返回值，以便HybridLoss可以正确处理
+        # 始终将logits作为第一个返回值，以便HybridLoss可以正确处理
         outputs = (logits,)
 
         # 如果提供了标签，计算损失
@@ -417,20 +388,9 @@ class PunctuationModel(nn.Module):
         return outputs
 
 
-# 联合损失函数：Focal Loss + 加权交叉熵
 class HybridLoss(nn.Module):
     """结合Focal Loss和加权交叉熵的联合损失函数"""
-
     def __init__(self, alpha=0.5, gamma=2.0, class_weights=None, device=None):
-        """
-        初始化联合损失函数
-        
-        Args:
-            alpha: Focal Loss在联合损失中的权重
-            gamma: Focal Loss的gamma参数，控制难易样本权重
-            class_weights: 各类别的权重
-            device: 计算设备
-        """
         super(HybridLoss, self).__init__()
         self.alpha = alpha
         self.gamma = gamma
@@ -475,21 +435,8 @@ class HybridLoss(nn.Module):
             return torch.tensor(0.0, device=self.device if self.device else logits.device)
 
 
-# 辅助函数
 def calculate_class_weights(label_distribution, num_classes, method='log_scale', beta=0.9, max_weight=10.0):
-    """
-    计算类别权重
-    
-    Args:
-        label_distribution: 标签分布字典
-        num_classes: 类别数量
-        method: 计算方法，'log_scale'或'effective_samples'
-        beta: 有效样本平衡参数
-        max_weight: 最大权重上限
-    
-    Returns:
-        类别权重张量
-    """
+    """权重计算"""
     # 确保所有类别都有计数
     counts = np.zeros(num_classes)
     for tag, idx in TAG_TO_IDX.items():
@@ -521,20 +468,7 @@ def calculate_class_weights(label_distribution, num_classes, method='log_scale',
 
 
 def get_cosine_schedule_with_warmup(optimizer, num_warmup_steps, num_training_steps, min_lr_ratio=0.0, last_epoch=-1):
-    """
-    创建带预热的余弦学习率调度器
-    
-    Args:
-        optimizer: 优化器
-        num_warmup_steps: 预热步数
-        num_training_steps: 总训练步数
-        min_lr_ratio: 最小学习率与初始学习率的比例
-        last_epoch: 上一轮的epoch
-    
-    Returns:
-        学习率调度器
-    """
-
+    """创建带预热的余弦学习率调度器"""
     def lr_lambda(current_step):
         # 预热阶段
         if current_step < num_warmup_steps:
@@ -551,18 +485,7 @@ def get_cosine_schedule_with_warmup(optimizer, num_warmup_steps, num_training_st
 
 
 def evaluate(model, data_loader, device, num_tags):
-    """
-    评估模型性能
-    
-    Args:
-        model: 模型
-        data_loader: 数据加载器
-        device: 计算设备
-        num_tags: 标签数量
-    
-    Returns:
-        评估指标字典
-    """
+    """评估模型性能"""
     model.eval()
 
     all_predictions = []
@@ -634,19 +557,7 @@ def collate_fn(batch):
 
 
 def save_checkpoint(model, optimizer, scheduler, config, epoch, metrics, best_f1, checkpoint_path):
-    """
-    保存检查点
-    
-    Args:
-        model: 模型
-        optimizer: 优化器
-        scheduler: 学习率调度器
-        config: 配置
-        epoch: 当前轮次
-        metrics: 评估指标
-        best_f1: 最佳F1分数
-        checkpoint_path: 保存路径
-    """
+    """保存检查点"""
     checkpoint = {
         'epoch': epoch,
         'model_state_dict': model.state_dict(),
@@ -669,18 +580,7 @@ def load_config(config_path):
 
 
 def load_checkpoint(checkpoint_path, model, optimizer=None, scheduler=None):
-    """
-    加载检查点
-    
-    Args:
-        checkpoint_path: 检查点路径
-        model: 模型
-        optimizer: 优化器(可选)
-        scheduler: 学习率调度器(可选)
-    
-    Returns:
-        epoch, best_f1, metrics
-    """
+    """加载检查点"""
     checkpoint = torch.load(checkpoint_path)
 
     model.load_state_dict(checkpoint['model_state_dict'])
@@ -695,12 +595,6 @@ def load_checkpoint(checkpoint_path, model, optimizer=None, scheduler=None):
 
 
 def train(config):
-    """
-    训练模型的主函数
-    
-    Args:
-        config: 配置字典
-    """
     # 设置随机种子
     torch.manual_seed(config['training']['seed'])
     torch.cuda.manual_seed_all(config['training']['seed'])
@@ -739,7 +633,6 @@ def train(config):
             shuffle=True
         )
 
-
     logger.info("加载验证集...")
     if use_streaming:
         dev_dataset = StreamingPunctuationDataset(
@@ -772,20 +665,20 @@ def train(config):
         train_loader = DataLoader(
             train_dataset,
             batch_size=config['training']['batch_size'],
-            shuffle=False,  # 流式数据集内部已经实现了shuffle
+            shuffle=False,
             collate_fn=collate_fn,
             num_workers=config['training'].get('dataloader_workers', 2),
-            pin_memory=True,  # 加速数据传输到GPU
+            pin_memory=True,
             prefetch_factor=config['training'].get('prefetch_factor', 2)  # 预取批次数
         )
 
         dev_loader = DataLoader(
             dev_dataset,
             batch_size=config['training']['batch_size'],
-            shuffle=False,  # 流式数据集内部已经实现了shuffle
+            shuffle=False,
             collate_fn=collate_fn,
             num_workers=config['training'].get('dataloader_workers', 2),
-            pin_memory=True  # 加速数据传输到GPU
+            pin_memory=True
         )
     else:
         train_loader = DataLoader(
@@ -817,11 +710,11 @@ def train(config):
 
     # 设置学习率调度器
     if use_streaming:
-        # 对于流式数据集，我们需要估计每个epoch的步数
+        # 对于流式数据集，需要估计每个epoch的步数
         steps_per_epoch = config['training'].get('steps_per_epoch', 1000)
         num_training_steps = steps_per_epoch * config['training']['epochs']
     else:
-        # 对于常规数据集，我们可以直接计算步数
+        # 对于常规数据集，我直接计算步数
         num_training_steps = len(train_loader) * config['training']['epochs']
         
     num_warmup_steps = int(num_training_steps * config['training']['lr_scheduler']['warmup_ratio'])
@@ -871,7 +764,7 @@ def train(config):
         # 根据数据集类型选择不同的训练流程
         if use_streaming:
             # 流式数据集训练流程
-            # 使用tqdm创建进度条，但不指定total（因为流式数据集大小未知）
+            # 使用tqdm创建进度条
             progress_bar = tqdm(train_loader, desc=f"训练 Epoch {epoch}")
             
             # 限制每个epoch的步数，避免无限循环
@@ -965,8 +858,7 @@ def train(config):
         else:
             # 常规数据集训练流程
             progress_bar = tqdm(train_loader, desc=f"训练 Epoch {epoch}")
-            
-            # 标记是否已经调用过optimizer.step()和scheduler.step()
+
             optimizer_stepped = False
             first_batch_scheduler_stepped = False
             
@@ -1046,16 +938,13 @@ def train(config):
 
                 # 更新进度条
                 progress_bar.set_postfix({"loss": f"{loss.item():.4f}"})
-                
-                # 如果是第一个批次且是第一个epoch，确保在调用scheduler.step()之前已经调用了optimizer.step()
+
                 if train_steps == 1 and epoch == 1 and optimizer_stepped and not first_batch_scheduler_stepped:
-                    # 在第一个批次后调用一次scheduler.step()，确保顺序正确
                     scheduler.step()
                     first_batch_scheduler_stepped = True
 
             # 在每个epoch结束时更新学习率
             if optimizer_stepped:
-                # 如果是第一个epoch且已经在第一个批次后调用过scheduler.step()，则不再调用
                 if not (epoch == 1 and first_batch_scheduler_stepped):
                     scheduler.step()
         
@@ -1071,7 +960,7 @@ def train(config):
         
         # 根据数据集类型选择不同的评估函数
         if use_streaming:
-            # 对于流式数据集，我们需要限制评估的批次数
+            # 对于流式数据集，需要限制评估的批次数
             max_eval_steps = config['training'].get('max_eval_steps', 100)
             metrics = evaluate_streaming(model, dev_loader, device, config['model']['num_tags'], max_steps=max_eval_steps)
         else:
@@ -1122,21 +1011,8 @@ def train(config):
     return best_f1, best_epoch
 
 
-# 为流式数据集添加评估函数
 def evaluate_streaming(model, data_loader, device, num_tags, max_steps=100):
-    """
-    评估流式数据集上的模型性能
-    
-    Args:
-        model: 模型
-        data_loader: 数据加载器
-        device: 计算设备
-        num_tags: 标签数量
-        max_steps: 最大评估步数
-    
-    Returns:
-        评估指标字典
-    """
+    """评估流式数据集上的模型性能"""
     model.eval()
 
     all_predictions = []
